@@ -1,6 +1,6 @@
-# bot.py — FitAI с памятью, кнопками и расчётом калорий по фото 🤖💪📸
+# bot.py — FitAI Trainer 🤖💪📸 (красивая версия)
 import os
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     filters, ContextTypes
@@ -30,44 +30,68 @@ menu_keyboard = ReplyKeyboardMarkup(
         ["🔥 Мотивация", "📸 Калории по фото"],
         ["🔄 Новый диалог"],
     ],
-    resize_keyboard=True   # кнопки компактные
+    resize_keyboard=True
 )
 
-# 💾 ПАМЯТЬ: хранит историю для каждого пользователя
+# 💾 ПАМЯТЬ: история для каждого пользователя
 user_history = {}
 
-# Команда /start
+# Команда /start — красивое приветствие
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
     user_history[user_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
+    welcome_text = (
+        f"👋 Привет, *{user_name}*!\n\n"
+        "💪 Я — *FitAI Trainer*, твой персональный\n"
+        "ИИ фитнес-тренер. Вот что я умею:\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "🏋️ *Тренировки* — программы под тебя\n"
+        "🥗 *Питание* — советы и рецепты\n"
+        "🔥 *Мотивация* — заряд энергии\n"
+        "📸 *Калории по фото* — пришли фото еды,\n"
+        "      и я посчитаю калории и БЖУ!\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "✨ _Выбери кнопку ниже или просто напиши мне!_"
+    )
+
     await update.message.reply_text(
-        "Привет! 💪 Я FitAI — твой ИИ фитнес-тренер.\n"
-        "Выбери кнопку ниже или просто напиши мне! 🔥\n\n"
-        "📸 А ещё я могу посчитать калории по фото твоей еды!",
+        welcome_text,
+        reply_markup=menu_keyboard,
+        parse_mode="Markdown"
+    )
+
+# Команды для меню Telegram (быстрые действия)
+async def workout_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await process_message(update, "Предложи мне тренировку на сегодня")
+
+async def food_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await process_message(update, "Дай совет по питанию на сегодня")
+
+async def motivate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await process_message(update, "Замотивируй меня на тренировку!")
+
+async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_history[user_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    await update.message.reply_text(
+        "Начали заново! 🆕 О чём поговорим?",
         reply_markup=menu_keyboard
     )
 
 # Обработка ВСЕХ текстовых сообщений
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
     user_text = update.message.text
-
-    if user_id not in user_history:
-        user_history[user_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     # 🔘 Обработка кнопок
     if user_text == "🔄 Новый диалог":
-        user_history[user_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
-        await update.message.reply_text(
-            "Начали заново! 🆕 О чём поговорим?",
-            reply_markup=menu_keyboard
-        )
+        await reset_cmd(update, context)
         return
 
     if user_text == "📸 Калории по фото":
         await update.message.reply_text(
-            "Пришли мне фото своей еды 🍽️\n"
+            "📸 Пришли мне фото своей еды 🍽️\n"
             "Я определю блюдо и посчитаю калории и БЖУ! 🔢",
             reply_markup=menu_keyboard
         )
@@ -79,6 +103,15 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_text = "Дай совет по питанию на сегодня"
     elif user_text == "🔥 Мотивация":
         user_text = "Замотивируй меня на тренировку!"
+
+    await process_message(update, user_text)
+
+# 🧠 Общая функция: отправляет текст в ИИ и отвечает
+async def process_message(update: Update, user_text: str):
+    user_id = update.effective_user.id
+
+    if user_id not in user_history:
+        user_history[user_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     await update.message.chat.send_action("typing")
 
@@ -100,17 +133,15 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(answer, reply_markup=menu_keyboard)
 
-# 📸 НОВОЕ: Обработка ФОТО — расчёт калорий через Groq Vision
+# 📸 Обработка ФОТО — расчёт калорий через Groq Vision
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.chat.send_action("typing")
     await update.message.reply_text("Анализирую фото... 🔍🍽️")
 
-    # Берём фото в лучшем качестве и получаем ссылку на него
     photo = await update.message.photo[-1].get_file()
     photo_url = photo.file_path
 
     try:
-        # Отправляем фото в Groq Vision (бесплатная модель)
         response = client.chat.completions.create(
             model="meta-llama/llama-4-scout-17b-16e-instruct",
             messages=[
@@ -149,13 +180,33 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(answer, reply_markup=menu_keyboard)
 
+# Устанавливаем команды в меню Telegram
+async def set_commands(app):
+    commands = [
+        BotCommand("start", "🚀 Запустить бота"),
+        BotCommand("workout", "🏋️ Тренировка на сегодня"),
+        BotCommand("food", "🥗 Совет по питанию"),
+        BotCommand("motivate", "🔥 Мотивация"),
+        BotCommand("reset", "🔄 Новый диалог"),
+    ]
+    await app.bot.set_my_commands(commands)
+
 # Запуск
 def main():
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app = (
+        Application.builder()
+        .token(TELEGRAM_TOKEN)
+        .post_init(set_commands)
+        .build()
+    )
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))  # 📸 фото
+    app.add_handler(CommandHandler("workout", workout_cmd))
+    app.add_handler(CommandHandler("food", food_cmd))
+    app.add_handler(CommandHandler("motivate", motivate_cmd))
+    app.add_handler(CommandHandler("reset", reset_cmd))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
-    print("Бот с памятью, кнопками и расчётом калорий запущен! ✅📸")
+    print("Красивый бот запущен! ✅📸✨")
     app.run_polling(stop_signals=None)
 
 if __name__ == "__main__":
