@@ -8,8 +8,8 @@ from telegram.ext import (
 from groq import Groq
 
 # 🔑 КЛЮЧИ
-TELEGRAM_TOKEN = "ВСТАВЬ_ТОКЕН_ТЕЛЕГРАМА"
-GROQ_API_KEY = "ВСТАВЬ_КЛЮЧ_GROQ"
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 client = Groq(api_key=GROQ_API_KEY)
 
