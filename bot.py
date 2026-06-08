@@ -1,4 +1,4 @@
-# bot.py — FitAI Trainer 🤖💪📸 (красивая версия)
+# bot.py — FitAI Trainer 🤖💪📸 (с счётчиком юзеров)
 import json
 import os
 from telegram import Update, ReplyKeyboardMarkup, BotCommand
@@ -53,6 +53,9 @@ menu_keyboard = ReplyKeyboardMarkup(
 # 💾 ПАМЯТЬ: история для каждого пользователя
 user_history = {}
 
+# 👇 СЮДА свой id (если не уверен — бот сам покажет, см. /stats)
+MY_ID = 1580782517
+
 # Команда /start — красивое приветствие
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(update.effective_user.id)
@@ -80,12 +83,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-MY_ID = 1580782517  # 👈 ЗАМЕНИ на свой id из ШАГА 1!
+# 📊 Команда /stats — статистика (только для тебя)
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    my_real_id = update.effective_user.id  # твой настоящий id
 
-async def stats(update, context):
-    if update.effective_user.id != MY_ID:
-        return  # чужим ничего не показываем 🔒
-    
+    if my_real_id != MY_ID:
+        await update.message.reply_text(
+            f"⛔ Доступ запрещён.\n\n"
+            f"Твой id: {my_real_id}\n"
+            f"В коде MY_ID: {MY_ID}\n\n"
+            f"Если это ТЫ — скопируй свой id выше\n"
+            f"и вставь его в строку MY_ID в коде!"
+        )
+        return
+
     users = load_users()
     await update.message.reply_text(
         f"📊 Статистика бота:\n\n"
@@ -230,13 +241,13 @@ def main():
         .build()
     )
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("workout", workout_cmd))
     app.add_handler(CommandHandler("food", food_cmd))
     app.add_handler(CommandHandler("motivate", motivate_cmd))
     app.add_handler(CommandHandler("reset", reset_cmd))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
-    app.add_handler(CommandHandler("stats", stats))
     print("Красивый бот запущен! ✅📸✨")
     app.run_polling(stop_signals=None)
 
