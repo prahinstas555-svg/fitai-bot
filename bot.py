@@ -1,4 +1,4 @@
-# bot.py — FitAI с памятью и кнопками 🤖💪
+# bot.py — FitAI с памятью, кнопками и расчётом калорий по фото 🤖💪📸
 import os
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -27,33 +27,32 @@ SYSTEM_PROMPT = (
 menu_keyboard = ReplyKeyboardMarkup(
     [
         ["🏋️ Тренировка", "🥗 Питание"],
-        ["🔥 Мотивация", "🔄 Новый диалог"],
+        ["🔥 Мотивация", "📸 Калории по фото"],
+        ["🔄 Новый диалог"],
     ],
     resize_keyboard=True   # кнопки компактные
 )
 
 # 💾 ПАМЯТЬ: хранит историю для каждого пользователя
-# (словарь: id пользователя → список сообщений)
 user_history = {}
 
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    # Очищаем историю при старте
     user_history[user_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     await update.message.reply_text(
         "Привет! 💪 Я FitAI — твой ИИ фитнес-тренер.\n"
-        "Выбери кнопку ниже или просто напиши мне! 🔥",
-        reply_markup=menu_keyboard   # показываем кнопки
+        "Выбери кнопку ниже или просто напиши мне! 🔥\n\n"
+        "📸 А ещё я могу посчитать калории по фото твоей еды!",
+        reply_markup=menu_keyboard
     )
 
-# Обработка ВСЕХ сообщений
+# Обработка ВСЕХ текстовых сообщений
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_text = update.message.text
 
-    # Если памяти ещё нет — создаём
     if user_id not in user_history:
         user_history[user_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
@@ -66,6 +65,14 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if user_text == "📸 Калории по фото":
+        await update.message.reply_text(
+            "Пришли мне фото своей еды 🍽️\n"
+            "Я определю блюдо и посчитаю калории и БЖУ! 🔢",
+            reply_markup=menu_keyboard
+        )
+        return
+
     if user_text == "🏋️ Тренировка":
         user_text = "Предложи мне тренировку на сегодня"
     elif user_text == "🥗 Питание":
@@ -73,27 +80,72 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif user_text == "🔥 Мотивация":
         user_text = "Замотивируй меня на тренировку!"
 
-    # Показываем "печатает..."
     await update.message.chat.send_action("typing")
 
-    # Добавляем сообщение пользователя в память
     user_history[user_id].append({"role": "user", "content": user_text})
 
-    # Спрашиваем Groq, передавая ВСЮ историю
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=user_history[user_id],
     )
     answer = response.choices[0].message.content
 
-    # Сохраняем ответ бота в память
     user_history[user_id].append({"role": "assistant", "content": answer})
 
-    # 🧹 Чтобы память не разрасталась — храним последние 20 сообщений
-    if len(user_history[user_id]) > 21:  # 1 системный + 20 диалоговых
+    # 🧹 Храним последние 20 сообщений
+    if len(user_history[user_id]) > 21:
         user_history[user_id] = (
             [user_history[user_id][0]] + user_history[user_id][-20:]
         )
+
+    await update.message.reply_text(answer, reply_markup=menu_keyboard)
+
+# 📸 НОВОЕ: Обработка ФОТО — расчёт калорий через Groq Vision
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.chat.send_action("typing")
+    await update.message.reply_text("Анализирую фото... 🔍🍽️")
+
+    # Берём фото в лучшем качестве и получаем ссылку на него
+    photo = await update.message.photo[-1].get_file()
+    photo_url = photo.file_path
+
+    try:
+        # Отправляем фото в Groq Vision (бесплатная модель)
+        response = client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "Определи, какое блюдо или продукты на фото. "
+                                "Посчитай примерные калории, белки, жиры и углеводы. "
+                                "Отвечай ТОЛЬКО на русском языке, дружелюбно, с эмодзи. "
+                                "Формат:\n"
+                                "🍽️ Что на фото\n"
+                                "🔢 Калории: ... ккал\n"
+                                "🥩 Белки / 🥑 Жиры / 🍚 Углеводы\n"
+                                "💡 Короткий совет от тренера. "
+                                "Если на фото не еда — скажи об этом."
+                            ),
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": photo_url},
+                        },
+                    ],
+                }
+            ],
+        )
+        answer = response.choices[0].message.content
+    except Exception as e:
+        answer = (
+            "Упс, не получилось разобрать фото 😔\n"
+            "Попробуй сделать фото чётче и при хорошем свете. 📷"
+        )
+        print("Ошибка vision:", e)
 
     await update.message.reply_text(answer, reply_markup=menu_keyboard)
 
@@ -101,8 +153,9 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))  # 📸 фото
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
-    print("Бот с памятью и кнопками запущен! ✅")
+    print("Бот с памятью, кнопками и расчётом калорий запущен! ✅📸")
     app.run_polling(stop_signals=None)
 
 if __name__ == "__main__":
